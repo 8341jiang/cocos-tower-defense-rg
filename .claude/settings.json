@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "PowerShell(*)",
+      "WebSearch",
+      "WebFetch(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Agent(*)",
+      "NotebookEdit(*)",
+      "Skill(*)",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskList",
+      "TaskGet",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "ScheduleWakeup"
+    ],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": true
+}

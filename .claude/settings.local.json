@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "PowerShell(gh search *)",
+      "WebFetch(domain:github.com)",
+      "PowerShell(python -c \"import docx; print\\('ok'\\)\" 2>&1)",
+      "PowerShell(pip install *)",
+      "PowerShell(python -c \"from PIL import Image, ImageDraw, ImageFont; print\\('ok'\\)\" 2>&1)",
+      "Skill(update-config)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}' -UseBasicParsing | Select-Object -ExpandProperty Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}' -UseBasicParsing | Select-Object -ExpandProperty Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"scene_get_current_scene\",\"arguments\":{}}}' -UseBasicParsing | Select-Object -ExpandProperty Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"debug_get_editor_info\",\"arguments\":{}}}' -UseBasicParsing | Select-Object -ExpandProperty Content)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\"name\":\"debug_get_console_logs\",\"arguments\":{\"limit\":10,\"filter\":\"error\"}}}' -UseBasicParsing | Select-Object -ExpandProperty Content)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(npx tsc --noEmit --project \"C:\\\\Users\\\\19067\\\\Desktop\\\\xxxxxx\\\\t\\\\cd\\\\rg\\\\tsconfig.json\" 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\19067\\\\Desktop\\\\xxxxxx\\\\t\\\\cd\\\\rg\\\\extensions\\\\cocos-mcp-server\\\\node_modules\\\\.bin\\\\tsc.cmd\" --noEmit --project \"C:\\\\Users\\\\19067\\\\Desktop\\\\xxxxxx\\\\t\\\\cd\\\\rg\\\\tsconfig.json\" 2>&1)",
+      "PowerShell(gh *)",
+      "PowerShell(npm *)",
+      "WebFetch(domain:www.npmjs.com)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:3000/mcp\" -Method POST -ContentType \"application/json\" -Body '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}' -TimeoutSec 5; $r.Content } catch { $_.Exception.Message })",
+      "PowerShell($paths = @\\(\"/\", \"/mcp\", \"/sse\", \"/api\", \"/health\", \"/jsonrpc\"\\); foreach \\($p in $paths\\) { try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:3000$p\" -Method GET -TimeoutSec 3 -ErrorAction Stop; Write-Output \"$p => $\\($r.StatusCode\\)\" } catch { Write-Output \"$p => $\\($_.Exception.Message\\)\" } })",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Rename-Item *)",
+      "PowerShell(cmd /c \"rd /s /q C:\\\\Users\\\\19067\\\\Desktop\\\\xxxxxx\\\\t\\\\cd\\\\rg\\\\extensions\\\\cocos-mcp-server\" 2>&1; Get-ChildItem \"C:\\\\Users\\\\19067\\\\Desktop\\\\xxxxxx\\\\t\\\\cd\\\\rg\\\\extensions\" | Format-Table Name)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Move-Item *)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:3001/sse\" -Method GET -TimeoutSec 5 -ErrorAction Stop; $r.Content } catch { $_.Exception.Message })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:3000/sse\" -Method GET -TimeoutSec 5 -ErrorAction Stop; $r.Content } catch { $_.Exception.Message })",
+      "PowerShell($req = [System.Net.HttpWebRequest]::Create\\(\"http://127.0.0.1:3000/sse\"\\); $req.Method = \"GET\"; $req.Timeout = 5000; try { $resp = $req.GetResponse\\(\\); $stream = $resp.GetResponseStream\\(\\); $reader = New-Object System.IO.StreamReader\\($stream\\); $reader.ReadLine\\(\\); $reader.ReadLine\\(\\); $reader.ReadLine\\(\\); $reader.Close\\(\\); $resp.Close\\(\\) } catch { $_.Exception.Message })",
+      "PowerShell($sessionId = \"test-\" + [System.Guid]::NewGuid\\(\\).ToString\\(\"N\"\\).Substring\\(0,8\\); $body = '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"claude-test\",\"version\":\"1.0\"}}}'; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:3000/message?sessionId=d5436482-8520-4d46-ad82-f9320d8054ee\" -Method POST -ContentType \"application/json\" -Body $body -TimeoutSec 10 -ErrorAction Stop; $r.Content } catch { $_.Exception.Message })",
+      "PowerShell($req = [System.Net.HttpWebRequest]::Create\\(\"http://127.0.0.1:3000/sse\"\\); $req.Method = \"GET\"; $req.Timeout = 5000; $resp = $req.GetResponse\\(\\); $stream = $resp.GetResponseStream\\(\\); $reader = New-Object System.IO.StreamReader\\($stream\\); $line1 = $reader.ReadLine\\(\\); $line2 = $reader.ReadLine\\(\\); $line3 = $reader.ReadLine\\(\\); Write-Output $line1; Write-Output $line2; Write-Output $line3; $sessionId = \\($line2 -split \"sessionId=\"\\)[1]; Write-Output \"SessionId: $sessionId\"; $body = '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"claude-test\",\"version\":\"1.0\"}}}'; $msgResp = Invoke-WebRequest -Uri \"http://127.0.0.1:3000/message?sessionId=$sessionId\" -Method POST -ContentType \"application/json\" -Body $body -TimeoutSec 10; Write-Output \"Response: $\\($msgResp.StatusCode\\)\"; Write-Output $msgResp.Content; $reader.Close\\(\\); $resp.Close\\(\\))",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:7456\" -Method GET -TimeoutSec 5 -ErrorAction Stop; \"Preview running: $\\($r.StatusCode\\)\" } catch { \"Preview not accessible: $\\($_.Exception.Message\\)\" })",
+      "PowerShell($req = [System.Net.HttpWebRequest]::Create\\(\"http://127.0.0.1:7456\"\\); $req.Method = \"GET\"; $req.Timeout = 5000; try { $resp = $req.GetResponse\\(\\); $reader = New-Object System.IO.StreamReader\\($resp.GetResponseStream\\(\\)\\); $content = $reader.ReadToEnd\\(\\); $reader.Close\\(\\); $resp.Close\\(\\); \"Preview OK - Status: $\\($resp.StatusCode\\), Content length: $\\($content.Length\\)\" } catch { \"Error: $\\($_.Exception.Message\\)\" })"
+    ]
+  },
+  "enableAllProjectMcpServers": true
+}
