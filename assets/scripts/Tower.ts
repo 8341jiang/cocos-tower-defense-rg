@@ -1,18 +1,19 @@
-import { _decorator, Component, Node } from 'cc';
+import { _decorator, Component, Node, Color, Graphics } from 'cc';
 import { Enemy } from './Enemy';
 import { GameBootstrap } from './GameBootstrap';
+import { HALF_WIDTH, HALF_HEIGHT } from './ScreenConstants';
 const { ccclass } = _decorator;
 
 /**
  * Tower — 炮塔组件
- * 自动寻找最近敌人并射击
+ * 自动寻找矩形区域内最近敌人并射击
  * 由 GameBootstrap 自动创建，不需要手动配置
  */
 @ccclass('Tower')
 export class Tower extends Component {
 
-    /** 攻击范围（像素） */
-    range: number = 200;
+    /** 攻击矩形（世界坐标） */
+    attackRect = { minX: -HALF_WIDTH, maxX: HALF_WIDTH, minY: -HALF_HEIGHT, maxY: HALF_HEIGHT };
 
     /** 基础伤害 */
     damage: number = 20;
@@ -32,9 +33,6 @@ export class Tower extends Component {
     /** 全局攻速加成引用（由 GameBootstrap 注入） */
     getSpeedBonus: (() => number) | null = null;
 
-    /** 全局范围加成引用（由 GameBootstrap 注入） */
-    getRangeBonus: (() => number) | null = null;
-
     private _timer: number = 0;
 
     update(dt: number) {
@@ -47,12 +45,8 @@ export class Tower extends Component {
         if (this._timer < interval) return;
         this._timer = 0;
 
-        // 范围加成
-        const rangeBonus = this.getRangeBonus ? this.getRangeBonus() : 0;
-        const totalRange = this.range + rangeBonus;
-
-        // 找最近敌人
-        const target = this.findNearest(totalRange);
+        // 找矩形内最近敌人
+        const target = this.findNearest();
         if (!target) return;
 
         // 伤害加成
@@ -66,15 +60,18 @@ export class Tower extends Component {
         }
     }
 
-    private findNearest(range: number): Enemy | null {
+    private findNearest(): Enemy | null {
         let best: Enemy | null = null;
-        let bestDist = range * range;
-        const p = this.node.position;
+        let bestDist = Infinity;
+        const r = this.attackRect;
 
         for (const e of this.enemies) {
             if (!e || !e.alive) continue;
             const ep = e.node.position;
-            const d2 = (ep.x - p.x) ** 2 + (ep.y - p.y) ** 2;
+            if (ep.x < r.minX || ep.x > r.maxX || ep.y < r.minY || ep.y > r.maxY) continue;
+            const dx = ep.x - this.node.position.x;
+            const dy = ep.y - this.node.position.y;
+            const d2 = dx * dx + dy * dy;
             if (d2 < bestDist) {
                 bestDist = d2;
                 best = e;

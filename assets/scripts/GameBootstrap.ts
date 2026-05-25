@@ -1,11 +1,18 @@
 import {
     _decorator, Component, Node, Label, Color,
-    director, Director, Graphics, input, Input
+    director, Director, Graphics, UITransform
 } from 'cc';
 import { Enemy } from './Enemy';
 import { Tower } from './Tower';
 import { Bullet } from './Bullet';
+import { SCREEN_WIDTH, SCREEN_HEIGHT, HALF_WIDTH, HALF_HEIGHT } from './ScreenConstants';
 const { ccclass } = _decorator;
+
+/** 升级选项 */
+interface UpgradeOption {
+    tower: number;   // 0=左塔, 1=右塔
+    label: string;
+}
 
 /**
  * 自动挂载：场景加载完成后，如果场景中没有手动挂载 GameBootstrap，则自动找到 Canvas 并添加
@@ -67,10 +74,18 @@ export class GameBootstrap extends Component {
     /** 全局暂停标志 — 所有组件在 update 开头检查 */
     static gamePaused = false;
 
-    // ===== 塔的全局加成（升级选择影响）=====
-    private dmgBonus = 0;
-    private speedBonus = 0;
-    private rangeBonus = 0;
+    /** 游戏结束标志 */
+    private gameOver = false;
+
+    /** 升级花费 */
+    private readonly UPGRADE_COST = 25;
+
+    // ===== 双塔引用 =====
+    private leftTower: Tower | null = null;
+    private rightTower: Tower | null = null;
+    private leftRangeIndicator: Graphics | null = null;
+    private rightRangeIndicator: Graphics | null = null;
+    private rightTowerInstalled: boolean = false;
 
     // ===== 敌人列表 =====
     private enemies: Enemy[] = [];
@@ -86,6 +101,9 @@ export class GameBootstrap extends Component {
     private waveHp = 100;
     private waveSpeed = 80;
 
+    /** 当前波可用敌人类型及权重 */
+    private waveEnemyPool: { type: string, weight: number }[] = [];
+
     // ===== 节点引用 =====
     private labelGold: Label = null!;
     private labelExp: Label = null!;
@@ -93,9 +111,7 @@ export class GameBootstrap extends Component {
     private labelLevel: Label = null!;
     private labelLives: Label = null!;
 
-    // ===== 范围指示器 =====
-    private rangeIndicator: Graphics | null = null;
-    private rangeBaseRadius = 0;
+    // ===== 升级面板 =====
     private upgradePanel: Node | null = null;
 
     // ===== 常量 =====（竖屏 720x1280，适配微信小游戏）
@@ -153,43 +169,65 @@ export class GameBootstrap extends Component {
 
     // ---------- 背景 ----------
     private makeBg() {
-        const bg = this.box('bg', 720, 1280, new Color(25, 30, 20));
+        const bg = this.box('bg', SCREEN_WIDTH, SCREEN_HEIGHT, new Color(25, 30, 20));
         bg.setPosition(0, 0, 0);
         this.node.addChild(bg);
     }
 
     // ---------- 炮塔 ----------
     private makeTower() {
-        const node = this.box('tower', 40, 40, new Color(200, 180, 50));
-        node.setPosition(this.TOWER_X, this.TOWER_Y, 0);
-        this.node.addChild(node);
+        // 左塔：高伤慢速（金色）
+        const leftX = this.TOWER_X - 120;
+        const leftNode = this.box('leftTower', 40, 40, new Color(200, 180, 50));
+        leftNode.setPosition(leftX, this.TOWER_Y, 0);
+        this.node.addChild(leftNode);
 
-        const tw = node.addComponent(Tower);
-        tw.range = 400;
-        tw.damage = 50;
-        tw.attackInterval = 0.4;
-        tw.enemies = this.enemies;
-        tw.getDamageBonus = () => this.dmgBonus;
-        tw.getSpeedBonus = () => this.speedBonus;
-        tw.getRangeBonus = () => this.rangeBonus;
-        tw.createBullet = (fx, fy, target, dmg) => {
+        const lt = leftNode.addComponent(Tower);
+        lt.attackRect = { minX: -HALF_WIDTH, maxX: HALF_WIDTH, minY: -HALF_HEIGHT, maxY: HALF_HEIGHT };
+        lt.damage = 50;
+        lt.attackInterval = 0.6;
+        lt.enemies = this.enemies;
+        lt.createBullet = (fx, fy, target, dmg) => {
             this.spawnBullet(fx, fy, target, dmg);
         };
+        this.leftTower = lt;
 
-        // 攻击范围指示圈
+        // 左塔范围指示（金色矩形）
+        this.leftRangeIndicator = this.drawRangeRect(leftNode, lt.attackRect, new Color(255, 215, 0, 80), new Color(255, 215, 0, 25));
+
+        // 右塔：低伤快速（绿色），初始隐藏，升级选项中安装
+        const rightX = this.TOWER_X + 120;
+        const rightNode = this.box('rightTower', 40, 40, new Color(80, 200, 80));
+        rightNode.setPosition(rightX, this.TOWER_Y, 0);
+        rightNode.active = false;
+        this.node.addChild(rightNode);
+
+        const rt = rightNode.addComponent(Tower);
+        rt.attackRect = { minX: -HALF_WIDTH, maxX: HALF_WIDTH, minY: -HALF_HEIGHT, maxY: HALF_HEIGHT };
+        rt.damage = 15;
+        rt.attackInterval = 0.25;
+        rt.enemies = this.enemies;
+        rt.createBullet = (fx, fy, target, dmg) => {
+            this.spawnBullet(fx, fy, target, dmg);
+        };
+        this.rightTower = rt;
+
+        // 右塔范围指示（绿色矩形，节点未激活时不会渲染）
+        this.rightRangeIndicator = this.drawRangeRect(rightNode, rt.attackRect, new Color(80, 200, 80, 80), new Color(80, 200, 80, 25));
+    }
+
+    /** 在塔节点下绘制范围指示矩形 */
+    private drawRangeRect(parentNode: Node, rect: { minX: number, maxX: number, minY: number, maxY: number }, strokeColor: Color, fillColor: Color): Graphics {
         const rangeNode = new Node('rangeIndicator');
-        node.addChild(rangeNode);
+        parentNode.addChild(rangeNode);
         const rg = rangeNode.addComponent(Graphics);
-        rg.strokeColor = new Color(255, 215, 0, 80);
-        rg.fillColor = new Color(255, 215, 0, 25);
+        rg.strokeColor = strokeColor;
+        rg.fillColor = fillColor;
         rg.lineWidth = 2;
-        rg.circle(0, 0, tw.range);
+        rg.rect(rect.minX - parentNode.position.x, rect.minY - parentNode.position.y, rect.maxX - rect.minX, rect.maxY - rect.minY);
         rg.fill();
         rg.stroke();
-
-        // 范围圈跟随加成动态更新
-        this.rangeIndicator = rg;
-        this.rangeBaseRadius = tw.range;
+        return rg;
     }
 
     // ---------- 子弹 ----------
@@ -215,23 +253,23 @@ export class GameBootstrap extends Component {
         const green = new Color(100, 255, 100);
 
         // 左上角信息
-        const lbWave = this.text('lbWave', '第 0 波', -310, 580, 24, white);
+        const lbWave = this.text('lbWave', '第 0 波', -260, 580, 26, white);
         uiRoot.addChild(lbWave.node);
         this.labelWave = lbWave;
 
-        const lbGold = this.text('lbGold', '金币: 50', -310, 545, 20, gold);
+        const lbGold = this.text('lbGold', '金币: 50', -260, 545, 22, gold);
         uiRoot.addChild(lbGold.node);
         this.labelGold = lbGold;
 
-        const lbExp = this.text('lbExp', '经验: 0/50', -310, 515, 20, green);
+        const lbExp = this.text('lbExp', '经验: 0/50', -260, 510, 22, green);
         uiRoot.addChild(lbExp.node);
         this.labelExp = lbExp;
 
-        const lbLevel = this.text('lbLevel', '等级: 1', -310, 485, 20, white);
+        const lbLevel = this.text('lbLevel', '等级: 1', -260, 475, 22, white);
         uiRoot.addChild(lbLevel.node);
         this.labelLevel = lbLevel;
 
-        const lbLives = this.text('lbLives', '生命: ♥♥♥♥♥', -310, 455, 20, new Color(255, 80, 80));
+        const lbLives = this.text('lbLives', '生命: ♥♥♥♥♥', -260, 440, 22, new Color(255, 80, 80));
         uiRoot.addChild(lbLives.node);
         this.labelLives = lbLives;
 
@@ -245,7 +283,7 @@ export class GameBootstrap extends Component {
     // ============================================================
 
     update(dt: number) {
-        if (GameBootstrap.gamePaused) return;
+        if (GameBootstrap.gamePaused || this.gameOver) return;
 
         // 清理已销毁的敌人（原地修改，保持 Tower 的引用不变）
         for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -294,6 +332,13 @@ export class GameBootstrap extends Component {
         this.spawnTimer = 0;
         this.waveHp = 80 + this.wave * 30;
         this.waveSpeed = 60 + this.wave * 8;
+
+        // 构建敌人池：随波次解锁新类型
+        this.waveEnemyPool = [{ type: 'normal', weight: 10 }];
+        if (this.wave >= 2) this.waveEnemyPool.push({ type: 'fast', weight: 3 });
+        if (this.wave >= 4) this.waveEnemyPool.push({ type: 'tank', weight: 2 });
+        if (this.wave >= 6) this.waveEnemyPool.push({ type: 'split', weight: 2 });
+
         this.spawning = true;
         this.updateUI();
         console.log(`===== 第 ${this.wave} 波开始 (${this.spawnTotal} 个敌人) =====`);
@@ -303,32 +348,109 @@ export class GameBootstrap extends Component {
     //  敌人生成
     // ============================================================
 
-    private spawnEnemy() {
-        const x = this.SPAWN_X_MIN + Math.random() * (this.SPAWN_X_MAX - this.SPAWN_X_MIN);
-        const node = this.box('enemy', 24, 24, new Color(220, 50, 50));
-        node.setPosition(x, this.SPAWN_Y, 0);
+    /** 从当前波敌人池中随机选一个类型 */
+    private pickEnemyType(): string {
+        const totalWeight = this.waveEnemyPool.reduce((s, e) => s + e.weight, 0);
+        let roll = Math.random() * totalWeight;
+        for (const entry of this.waveEnemyPool) {
+            roll -= entry.weight;
+            if (roll <= 0) return entry.type;
+        }
+        return 'normal';
+    }
+
+    /** 根据类型返回敌人属性 */
+    private getEnemyStats(type: string, isSplitChild: boolean = false) {
+        const base: {
+            hp: number, speed: number, size: number,
+            color: Color, reward: number, exp: number,
+            splitOnDeath: boolean
+        } = {
+            hp: this.waveHp,
+            speed: this.waveSpeed,
+            size: 24,
+            color: new Color(220, 50, 50),
+            reward: 10,
+            exp: 15,
+            splitOnDeath: false,
+        };
+
+        switch (type) {
+            case 'fast':
+                base.hp = Math.floor(this.waveHp * 0.5);
+                base.speed = this.waveSpeed * 1.8;
+                base.size = 18;
+                base.color = new Color(255, 100, 60);
+                base.reward = 8;
+                base.exp = 12;
+                break;
+            case 'tank':
+                base.hp = Math.floor(this.waveHp * 2.5);
+                base.speed = this.waveSpeed * 0.5;
+                base.size = 32;
+                base.color = new Color(140, 20, 20);
+                base.reward = 20;
+                base.exp = 25;
+                break;
+            case 'split':
+                base.hp = Math.floor(this.waveHp * 0.8);
+                base.speed = this.waveSpeed * 0.7;
+                base.size = 28;
+                base.color = new Color(180, 100, 50);
+                base.reward = 12;
+                base.exp = 18;
+                base.splitOnDeath = true;
+                break;
+        }
+
+        // 分裂出的小怪：血量减半，速度提升，体积缩小
+        if (isSplitChild) {
+            base.hp = Math.floor(base.hp * 0.5);
+            base.speed = base.speed * 1.3;
+            base.size = Math.max(14, Math.floor(base.size * 0.7));
+            base.reward = Math.floor(base.reward * 0.4);
+            base.exp = Math.floor(base.exp * 0.4);
+            base.splitOnDeath = false;
+        }
+
+        return base;
+    }
+
+    /** 创建一个敌人节点（通用） */
+    private createEnemyNode(type: string, x: number, y: number, isSplitChild: boolean = false): Enemy {
+        const stats = this.getEnemyStats(type, isSplitChild);
+        const halfSize = stats.size / 2;
+
+        const node = this.box('enemy', stats.size, stats.size, stats.color);
+        node.setPosition(x, y, 0);
         this.node.addChild(node);
 
-        // 血条背景（灰色小条，在敌人头顶）
-        const hpBg = this.box('hpBg', 26, 4, new Color(80, 80, 80));
-        hpBg.setPosition(0, 16, 0);
+        // 血条
+        const hpBg = this.box('hpBg', stats.size + 2, 4, new Color(80, 80, 80));
+        hpBg.setPosition(0, halfSize + 4, 0);
         node.addChild(hpBg);
 
-        // 血条前景（绿色，后面会被 update 动态缩放）
-        const hpBar = this.box('hpBar', 24, 3, new Color(50, 220, 50));
-        hpBar.setPosition(0, 16, 0);
+        const hpBar = this.box('hpBar', stats.size, 3, new Color(50, 220, 50));
+        hpBar.setPosition(0, halfSize + 4, 0);
         node.addChild(hpBar);
 
         const enemy = node.addComponent(Enemy);
-        enemy.hp = this.waveHp;
-        enemy.maxHp = this.waveHp;
-        enemy.speed = this.waveSpeed;
-        enemy.reward = 10;
-        enemy.exp = 15;
+        enemy.hp = stats.hp;
+        enemy.maxHp = stats.hp;
+        enemy.speed = stats.speed;
+        enemy.reward = stats.reward;
+        enemy.exp = stats.exp;
         enemy.alive = true;
         enemy.hpBar = hpBar;
+        enemy.splitOnDeath = stats.splitOnDeath;
+        enemy.isSplitChild = isSplitChild;
 
         enemy.onDeath = (e) => {
+            // 分裂
+            if (e.splitOnDeath && !e.isSplitChild) {
+                const pos = e.node.position;
+                this.spawnSplitChildren(pos.x, pos.y);
+            }
             this.gold += e.reward;
             this.exp += e.exp;
             this.checkLevelUp();
@@ -340,13 +462,26 @@ export class GameBootstrap extends Component {
             console.log(`[漏怪] 剩余生命: ${this.lives}`);
             this.updateUI();
             if (this.lives <= 0) {
-                console.log('===== 游戏结束 =====');
-                console.log(`波次: ${this.wave}  等级: ${this.level}  金币: ${this.gold}`);
+                this.triggerGameOver();
             }
         };
 
         this.enemies.push(enemy);
+        return enemy;
+    }
+
+    /** 波次正常出怪 */
+    private spawnEnemy() {
+        const type = this.pickEnemyType();
+        const x = this.SPAWN_X_MIN + Math.random() * (this.SPAWN_X_MAX - this.SPAWN_X_MIN);
+        this.createEnemyNode(type, x, this.SPAWN_Y);
         this.spawnCount++;
+    }
+
+    /** 分裂产生两个小怪 */
+    private spawnSplitChildren(x: number, y: number) {
+        this.createEnemyNode('split', x - 20, y, true);
+        this.createEnemyNode('split', x + 20, y, true);
     }
 
     // ============================================================
@@ -365,56 +500,110 @@ export class GameBootstrap extends Component {
     /** 升级时暂停游戏，弹出三选一面板 */
     private autoLevelUp() {
         GameBootstrap.gamePaused = true;
-        console.log(`★ 升级 Lv.${this.level} → 选择强化`);
+        console.log(`★ 升级 Lv.${this.level} → 选择强化 (花费 ${this.UPGRADE_COST} 金币)`);
 
         const options = this.rollUpgradeOptions();
         this.showUpgradePanel(options);
     }
 
-    /** Fisher-Yates 洗牌，保证三个选项各不相同 */
-    private rollUpgradeOptions(): string[] {
-        const pool = ['伤害+5', '攻速+0.1', '范围+15'];
+    /** Fisher-Yates 洗牌，取3个选项 */
+    private rollUpgradeOptions(): UpgradeOption[] {
+        const pool: UpgradeOption[] = [
+            { tower: 0, label: '左塔伤害+10' },
+            { tower: 0, label: '左塔攻速+0.1' },
+            { tower: 0, label: '左塔伤害+8' },
+        ];
+        if (!this.rightTowerInstalled) {
+            pool.push({ tower: 1, label: '安装右塔' });
+        } else {
+            pool.push(
+                { tower: 1, label: '右塔伤害+5' },
+                { tower: 1, label: '右塔攻速+0.15' },
+                { tower: 1, label: '右塔攻速+0.08' },
+            );
+        }
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
         }
-        return pool;
+        return pool.slice(0, 3);
     }
 
-    /** 将选项名映射到实际加成逻辑 */
-    private applyUpgrade(label: string) {
-        if (label === '伤害+5') {
-            this.dmgBonus += 5;
-        } else if (label === '攻速+0.1') {
-            this.speedBonus += 0.1;
-        } else if (label === '范围+15') {
-            this.rangeBonus += 15;
-            this.updateRangeIndicator();
+    /** 应用升级选项到对应塔 */
+    private applyUpgrade(option: UpgradeOption) {
+        this.gold -= this.UPGRADE_COST;
+
+        if (option.label === '安装右塔') {
+            if (this.rightTower && this.rightTower.node) {
+                this.rightTower.node.active = true;
+                this.rightTowerInstalled = true;
+                console.log('[右塔] 已部署');
+            }
+            this.updateUI();
+            return;
         }
+
+        const tw = option.tower === 0 ? this.leftTower : this.rightTower;
+        if (!tw) { this.updateUI(); return; }
+
+        if (option.label.includes('伤害+10')) {
+            tw.damage += 10;
+        } else if (option.label.includes('伤害+8')) {
+            tw.damage += 8;
+        } else if (option.label.includes('伤害+5')) {
+            tw.damage += 5;
+        } else if (option.label.includes('攻速+0.15')) {
+            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.15);
+        } else if (option.label.includes('攻速+0.1')) {
+            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.1);
+        } else if (option.label.includes('攻速+0.08')) {
+            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.08);
+        }
+        this.updateUI();
     }
 
-    /** 绘制升级面板，全面诊断坐标系并自动适配 */
-    private showUpgradePanel(options: string[]) {
+    /** 重绘指定塔的范围指示器 */
+    private redrawRangeIndicator(towerIndex: number) {
+        const tw = towerIndex === 0 ? this.leftTower : this.rightTower;
+        const indicator = towerIndex === 0 ? this.leftRangeIndicator : this.rightRangeIndicator;
+        if (!tw || !indicator) return;
+        const r = tw.attackRect;
+        const parentNode = towerIndex === 0 ? this.leftTower!.node : this.rightTower!.node;
+        indicator.clear();
+        indicator.rect(r.minX - parentNode.position.x, r.minY - parentNode.position.y, r.maxX - r.minX, r.maxY - r.minY);
+        indicator.fill();
+        indicator.stroke();
+    }
+
+    /** 绘制升级面板 */
+    private showUpgradePanel(options: UpgradeOption[]) {
         const btnY = [-40, -120, -200];
         const btnW = 400, btnH = 70;
+        const canAfford = this.gold >= this.UPGRADE_COST;
 
         const panel = new Node('upgradePanel');
         this.node.addChild(panel);
         this.upgradePanel = panel;
 
+        // 全屏遮挡层（拦截所有触摸，不让穿透到游戏）
         const mask = new Node('mask');
+        const maskUIT = mask.addComponent(UITransform);
+        maskUIT.setContentSize(SCREEN_WIDTH, SCREEN_HEIGHT);
         const mg = mask.addComponent(Graphics);
         mg.fillColor = new Color(0, 0, 0, 150);
-        mg.rect(-360, -640, 720, 1280);
+        mg.rect(-HALF_WIDTH, -HALF_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
         mg.fill();
         panel.addChild(mask);
 
+        // 面板背景
         const bg = new Node('panelBg');
+        const bgUIT = bg.addComponent(UITransform);
+        bgUIT.setContentSize(500, 400);
         const bgg = bg.addComponent(Graphics);
         bgg.fillColor = new Color(30, 35, 45, 240);
         bgg.strokeColor = new Color(255, 215, 0, 200);
         bgg.lineWidth = 3;
-        bgg.roundRect(-250, -250, 500, 400, 16);
+        bgg.roundRect(-250, -200, 500, 400, 16);
         bgg.fill();
         bgg.stroke();
         panel.addChild(bg);
@@ -427,18 +616,16 @@ export class GameBootstrap extends Component {
         title.setPosition(0, 120, 0);
         panel.addChild(title);
 
-        for (let i = 0; i < 3; i++) {
-            panel.addChild(this.createUpgradeButton(options[i], btnY[i]));
-        }
-
-        // 获取坐标参考信息
-        const canvasNode = this.node.parent!;
-        const canvasUIT = canvasNode.getComponent('cc.UITransform') as any;
-        const uitW = canvasUIT ? canvasUIT.width : 720;
-        const uitH = canvasUIT ? canvasUIT.height : 1280;
+        // 金币提示
+        const goldInfo = new Node('goldInfo');
+        const gl = goldInfo.addComponent(Label);
+        gl.string = canAfford ? `花费 ${this.UPGRADE_COST} 金币 (持有 ${this.gold})` : `金币不足! (需要 ${this.UPGRADE_COST}, 持有 ${this.gold})`;
+        gl.fontSize = 18;
+        gl.color = canAfford ? new Color(255, 215, 0) : new Color(255, 80, 80);
+        goldInfo.setPosition(0, 75, 0);
+        panel.addChild(goldInfo);
 
         const closeUpgradePanel = () => {
-            input.off(Input.EventType.TOUCH_END, onTouchEnd, this);
             GameBootstrap.gamePaused = false;
             if (this.upgradePanel && this.upgradePanel.isValid) {
                 this.upgradePanel.destroy();
@@ -446,40 +633,40 @@ export class GameBootstrap extends Component {
             this.upgradePanel = null;
         };
 
-        const onTouchEnd = (event: any) => {
-            const touch = event.touch;
-            if (!touch) return;
-
-            const loc = touch.getLocation();
-            const uiLoc = touch.getUILocation();
-
-            // getUILocation() 返回 UITransform 空间坐标
-            // 需要按 UIT/设计分辨率 缩放，再减去设计半宽半高转到局部坐标
-            const tx = uiLoc.x * 720 / uitW - 360;
-            const ty = uiLoc.y * 1280 / uitH - 640;
-
+        // 金币不足时，点遮罩关闭
+        if (!canAfford) {
+            mask.on(Node.EventType.TOUCH_END, () => closeUpgradePanel(), this);
             for (let i = 0; i < 3; i++) {
-                if (Math.abs(tx) < btnW / 2 &&
-                    Math.abs(ty - btnY[i]) < btnH / 2) {
-                    this.applyUpgrade(options[i]);
-                    closeUpgradePanel();
-                    return;
-                }
+                panel.addChild(this.createUpgradeButton(options[i].label, btnY[i], true));
             }
-        };
-        input.on(Input.EventType.TOUCH_END, onTouchEnd, this);
+            return;
+        }
+
+        for (let i = 0; i < 3; i++) {
+            const btn = this.createUpgradeButton(options[i].label, btnY[i], false);
+            btn.on(Node.EventType.TOUCH_END, () => {
+                console.log(`[升级面板] 选中: ${options[i].label}`);
+                this.applyUpgrade(options[i]);
+                closeUpgradePanel();
+            }, this);
+            panel.addChild(btn);
+        }
     }
 
-    /** 创建单个升级按钮（纯视觉，不含事件） */
-    private createUpgradeButton(label: string, y: number): Node {
+    /** 创建单个升级按钮（带 UITransform 支持触摸） */
+    private createUpgradeButton(label: string, y: number, grayedOut: boolean = false): Node {
+        const btnW = 400, btnH = 70;
         const btn = new Node('btn_' + label);
         btn.setPosition(0, y, 0);
 
+        const uit = btn.addComponent(UITransform);
+        uit.setContentSize(btnW, btnH);
+
         const bg = btn.addComponent(Graphics);
-        bg.fillColor = new Color(50, 60, 80, 255);
-        bg.strokeColor = new Color(180, 180, 180, 180);
+        bg.fillColor = grayedOut ? new Color(40, 40, 40, 200) : new Color(50, 60, 80, 255);
+        bg.strokeColor = grayedOut ? new Color(80, 80, 80, 120) : new Color(180, 180, 180, 180);
         bg.lineWidth = 2;
-        bg.roundRect(-200, -35, 400, 70, 10);
+        bg.roundRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
         bg.fill();
         bg.stroke();
 
@@ -487,19 +674,85 @@ export class GameBootstrap extends Component {
         const lb = textNode.addComponent(Label);
         lb.string = label;
         lb.fontSize = 24;
-        lb.color = new Color(255, 255, 255);
+        lb.color = grayedOut ? new Color(100, 100, 100) : new Color(255, 255, 255);
         btn.addChild(textNode);
 
         return btn;
     }
 
-    private updateRangeIndicator() {
-        if (!this.rangeIndicator) return;
-        const r = this.rangeBaseRadius + this.rangeBonus;
-        this.rangeIndicator.clear();
-        this.rangeIndicator.circle(0, 0, r);
-        this.rangeIndicator.fill();
-        this.rangeIndicator.stroke();
+    // ============================================================
+    //  游戏结束
+    // ============================================================
+
+    private triggerGameOver() {
+        this.gameOver = true;
+        GameBootstrap.gamePaused = true;
+        console.log('===== 游戏结束 =====');
+        console.log(`波次: ${this.wave}  等级: ${this.level}  金币: ${this.gold}`);
+        this.showGameOverPanel();
+    }
+
+    private showGameOverPanel() {
+        const panel = new Node('gameOverPanel');
+        this.node.addChild(panel);
+
+        const mask = new Node('mask');
+        const maskUIT = mask.addComponent(UITransform);
+        maskUIT.setContentSize(SCREEN_WIDTH, SCREEN_HEIGHT);
+        const mg = mask.addComponent(Graphics);
+        mg.fillColor = new Color(0, 0, 0, 180);
+        mg.rect(-HALF_WIDTH, -HALF_HEIGHT, SCREEN_WIDTH, SCREEN_HEIGHT);
+        mg.fill();
+        panel.addChild(mask);
+
+        const bg = new Node('panelBg');
+        const bgg = bg.addComponent(Graphics);
+        bgg.fillColor = new Color(40, 10, 10, 240);
+        bgg.strokeColor = new Color(255, 80, 80, 200);
+        bgg.lineWidth = 3;
+        bgg.roundRect(-250, -200, 500, 350, 16);
+        bgg.fill();
+        bgg.stroke();
+        panel.addChild(bg);
+
+        const makeLabel = (text: string, y: number, size: number, color: Color) => {
+            const n = new Node(text);
+            const lb = n.addComponent(Label);
+            lb.string = text;
+            lb.fontSize = size;
+            lb.color = color;
+            n.setPosition(0, y, 0);
+            panel.addChild(n);
+        };
+
+        makeLabel('游戏结束', 120, 36, new Color(255, 80, 80));
+        makeLabel(`坚持到第 ${this.wave} 波`, 60, 22, new Color(255, 255, 255));
+        makeLabel(`等级: ${this.level}    金币: ${this.gold}`, 20, 20, new Color(200, 200, 200));
+
+        // 重新开始按钮
+        const restartBtn = new Node('restartBtn');
+        restartBtn.setPosition(0, -80, 0);
+        const rUIT = restartBtn.addComponent(UITransform);
+        rUIT.setContentSize(240, 60);
+        const rbg = restartBtn.addComponent(Graphics);
+        rbg.fillColor = new Color(60, 80, 60, 255);
+        rbg.strokeColor = new Color(100, 255, 100, 200);
+        rbg.lineWidth = 2;
+        rbg.roundRect(-120, -30, 240, 60, 10);
+        rbg.fill();
+        rbg.stroke();
+        panel.addChild(restartBtn);
+
+        const restartText = new Node('text');
+        const rtl = restartText.addComponent(Label);
+        rtl.string = '重新开始';
+        rtl.fontSize = 26;
+        rtl.color = new Color(100, 255, 100);
+        restartBtn.addChild(restartText);
+
+        restartBtn.on(Node.EventType.TOUCH_END, () => {
+            director.loadScene('Battle');
+        }, this);
     }
 
     // ============================================================

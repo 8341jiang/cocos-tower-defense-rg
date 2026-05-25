@@ -1,5 +1,6 @@
 import { _decorator, Component } from 'cc';
 import { GameBootstrap } from './GameBootstrap';
+import { HALF_HEIGHT } from './ScreenConstants';
 const { ccclass } = _decorator;
 
 /**
@@ -15,6 +16,17 @@ export class Enemy extends Component {
     reward: number = 10;
     exp: number = 15;
     alive: boolean = true;
+
+    /** 减速因子（1.0=正常，由 SlowTower 攻击命中时设置） */
+    slowFactor: number = 1.0;
+
+    /** 减速剩余时间（秒，>0 时保持减速，归零后恢复） */
+    slowTimer: number = 0;
+
+    /** 死亡时分裂（SplitEnemy 专用） */
+    splitOnDeath: boolean = false;
+    /** 分裂出的小怪是否为子代（防止无限分裂） */
+    isSplitChild: boolean = false;
 
     /** 血条前景节点（由 GameBootstrap 注入，用于实时更新宽度） */
     hpBar: import('cc').Node | null = null;
@@ -39,6 +51,7 @@ export class Enemy extends Component {
             this.hp = 0;
             this.alive = false;
             if (this.onDeath) this.onDeath(this);
+            this.onDeath = null;
             this.node.destroy();
         }
     }
@@ -46,11 +59,20 @@ export class Enemy extends Component {
     update(dt: number) {
         if (!this.alive || GameBootstrap.gamePaused) return;
 
+        // 减速倒计时
+        if (this.slowTimer > 0) {
+            this.slowTimer -= dt;
+            if (this.slowTimer <= 0) {
+                this.slowTimer = 0;
+                this.slowFactor = 1.0;
+            }
+        }
+
         const p = this.node.position;
-        this.node.setPosition(p.x, p.y - this.speed * dt, 0);
+        this.node.setPosition(p.x, p.y - this.speed * this.slowFactor * dt, 0);
 
         // 超出下边界 → 漏怪
-        if (this.node.position.y < -640) {
+        if (this.node.position.y < -HALF_HEIGHT) {
             this.alive = false;
             if (this.onEscape) this.onEscape(this);
             this.node.destroy();
