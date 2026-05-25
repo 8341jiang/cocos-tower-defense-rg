@@ -10,8 +10,9 @@ const { ccclass } = _decorator;
 
 /** 升级选项 */
 interface UpgradeOption {
-    tower: number;   // 0=左塔, 1=右塔
     label: string;
+    cost: number;
+    apply: () => void;
 }
 
 /**
@@ -77,9 +78,6 @@ export class GameBootstrap extends Component {
     /** 游戏结束标志 */
     private gameOver = false;
 
-    /** 升级花费 */
-    private readonly UPGRADE_COST = 25;
-
     // ===== 双塔引用 =====
     private leftTower: Tower | null = null;
     private rightTower: Tower | null = null;
@@ -110,6 +108,9 @@ export class GameBootstrap extends Component {
     private labelWave: Label = null!;
     private labelLevel: Label = null!;
     private labelLives: Label = null!;
+
+    // ===== 飘字系统 =====
+    private _floatingTexts: { node: Node, label: Label, vy: number, timer: number, duration: number }[] = [];
 
     // ===== 升级面板 =====
     private upgradePanel: Node | null = null;
@@ -187,8 +188,8 @@ export class GameBootstrap extends Component {
         lt.damage = 50;
         lt.attackInterval = 0.6;
         lt.enemies = this.enemies;
-        lt.createBullet = (fx, fy, target, dmg) => {
-            this.spawnBullet(fx, fy, target, dmg);
+        lt.createBullet = (fx, fy, target, dmg, penetrate, isCrit, dirX, dirY) => {
+            this.spawnBullet(fx, fy, target, dmg, penetrate, isCrit, dirX, dirY);
         };
         this.leftTower = lt;
 
@@ -207,8 +208,8 @@ export class GameBootstrap extends Component {
         rt.damage = 15;
         rt.attackInterval = 0.25;
         rt.enemies = this.enemies;
-        rt.createBullet = (fx, fy, target, dmg) => {
-            this.spawnBullet(fx, fy, target, dmg);
+        rt.createBullet = (fx, fy, target, dmg, penetrate, isCrit, dirX, dirY) => {
+            this.spawnBullet(fx, fy, target, dmg, penetrate, isCrit, dirX, dirY);
         };
         this.rightTower = rt;
 
@@ -231,8 +232,10 @@ export class GameBootstrap extends Component {
     }
 
     // ---------- 子弹 ----------
-    private spawnBullet(x: number, y: number, target: Enemy, dmg: number) {
-        const node = this.box('bullet', 8, 8, new Color(100, 255, 100));
+    private spawnBullet(x: number, y: number, target: Enemy | null, dmg: number,
+        penetrate?: number, isCrit?: boolean, dirX?: number, dirY?: number) {
+        const color = isCrit ? new Color(255, 255, 80) : new Color(100, 255, 100);
+        const node = this.box('bullet', 8, 8, color);
         node.setPosition(x, y, 0);
         this.node.addChild(node);
 
@@ -240,6 +243,16 @@ export class GameBootstrap extends Component {
         b.speed = 800;
         b.damage = dmg;
         b.target = target;
+        b.penetrateCount = penetrate || 0;
+        b.isCrit = isCrit || false;
+        b.allEnemies = this.enemies;
+
+        // 方向模式（散射子弹）
+        if (dirX !== undefined && dirY !== undefined) {
+            b.dirX = dirX;
+            b.dirY = dirY;
+            b.hasDir = true;
+        }
     }
 
     // ---------- UI ----------
@@ -285,6 +298,20 @@ export class GameBootstrap extends Component {
     update(dt: number) {
         if (GameBootstrap.gamePaused || this.gameOver) return;
 
+        // 飘字动画
+        for (let i = this._floatingTexts.length - 1; i >= 0; i--) {
+            const ft = this._floatingTexts[i];
+            ft.timer += dt;
+            const p = ft.node.position;
+            ft.node.setPosition(p.x, p.y + ft.vy * dt, 0);
+            const alpha = Math.max(0, 1 - ft.timer / ft.duration);
+            ft.label.color = new Color(ft.label.color.r, ft.label.color.g, ft.label.color.b, Math.floor(alpha * 255));
+            if (ft.timer >= ft.duration) {
+                ft.node.destroy();
+                this._floatingTexts.splice(i, 1);
+            }
+        }
+
         // 清理已销毁的敌人（原地修改，保持 Tower 的引用不变）
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const e = this.enemies[i];
@@ -326,18 +353,18 @@ export class GameBootstrap extends Component {
 
     private nextWave() {
         this.wave++;
-        this.spawnTotal = 8 + this.wave * 2;
+        this.spawnTotal = 8 + this.wave * 1;
         this.spawnCount = 0;
         this.spawnInterval = Math.max(0.4, 1.0 - this.wave * 0.05);
         this.spawnTimer = 0;
-        this.waveHp = 80 + this.wave * 30;
-        this.waveSpeed = 60 + this.wave * 8;
+        this.waveHp = 60 + this.wave * 22;
+        this.waveSpeed = 55 + this.wave * 5;
 
         // 构建敌人池：随波次解锁新类型
         this.waveEnemyPool = [{ type: 'normal', weight: 10 }];
         if (this.wave >= 2) this.waveEnemyPool.push({ type: 'fast', weight: 3 });
         if (this.wave >= 4) this.waveEnemyPool.push({ type: 'tank', weight: 2 });
-        if (this.wave >= 6) this.waveEnemyPool.push({ type: 'split', weight: 2 });
+        if (this.wave >= 8) this.waveEnemyPool.push({ type: 'split', weight: 2 });
 
         this.spawning = true;
         this.updateUI();
@@ -370,7 +397,7 @@ export class GameBootstrap extends Component {
             speed: this.waveSpeed,
             size: 24,
             color: new Color(220, 50, 50),
-            reward: 10,
+            reward: 6,
             exp: 15,
             splitOnDeath: false,
         };
@@ -381,7 +408,7 @@ export class GameBootstrap extends Component {
                 base.speed = this.waveSpeed * 1.8;
                 base.size = 18;
                 base.color = new Color(255, 100, 60);
-                base.reward = 8;
+                base.reward = 5;
                 base.exp = 12;
                 break;
             case 'tank':
@@ -389,7 +416,7 @@ export class GameBootstrap extends Component {
                 base.speed = this.waveSpeed * 0.5;
                 base.size = 32;
                 base.color = new Color(140, 20, 20);
-                base.reward = 20;
+                base.reward = 12;
                 base.exp = 25;
                 break;
             case 'split':
@@ -397,7 +424,7 @@ export class GameBootstrap extends Component {
                 base.speed = this.waveSpeed * 0.7;
                 base.size = 28;
                 base.color = new Color(180, 100, 50);
-                base.reward = 12;
+                base.reward = 7;
                 base.exp = 18;
                 base.splitOnDeath = true;
                 break;
@@ -444,8 +471,12 @@ export class GameBootstrap extends Component {
         enemy.hpBar = hpBar;
         enemy.splitOnDeath = stats.splitOnDeath;
         enemy.isSplitChild = isSplitChild;
+        enemy.initGraphics(stats.color, stats.size);
 
         enemy.onDeath = (e) => {
+            // 金币飘字
+            this.spawnFloatingText(e.node.position.x, e.node.position.y,
+                `+${e.reward}`, new Color(255, 215, 0), 20, 0.6);
             // 分裂
             if (e.splitOnDeath && !e.isSplitChild) {
                 const pos = e.node.position;
@@ -455,6 +486,12 @@ export class GameBootstrap extends Component {
             this.exp += e.exp;
             this.checkLevelUp();
             this.updateUI();
+        };
+
+        enemy.onDamage = (dmg, isCrit, x, y) => {
+            if (isCrit) {
+                this.spawnFloatingText(x, y + 20, 'CRIT!', new Color(255, 80, 80), 28, 0.6);
+            }
         };
 
         enemy.onEscape = (e) => {
@@ -484,6 +521,18 @@ export class GameBootstrap extends Component {
         this.createEnemyNode('split', x + 20, y, true);
     }
 
+    // ---------- 飘字 ----------
+    private spawnFloatingText(x: number, y: number, text: string, color: Color, fontSize: number, duration: number) {
+        const n = new Node('floatText');
+        n.setPosition(x, y, 0);
+        this.node.addChild(n);
+        const lb = n.addComponent(Label);
+        lb.string = text;
+        lb.fontSize = fontSize;
+        lb.color = color;
+        this._floatingTexts.push({ node: n, label: lb, vy: 80, timer: 0, duration });
+    }
+
     // ============================================================
     //  升级系统
     // ============================================================
@@ -500,65 +549,65 @@ export class GameBootstrap extends Component {
     /** 升级时暂停游戏，弹出三选一面板 */
     private autoLevelUp() {
         GameBootstrap.gamePaused = true;
-        console.log(`★ 升级 Lv.${this.level} → 选择强化 (花费 ${this.UPGRADE_COST} 金币)`);
+        console.log(`★ 升级 Lv.${this.level} → 选择强化`);
 
         const options = this.rollUpgradeOptions();
         this.showUpgradePanel(options);
     }
 
-    /** Fisher-Yates 洗牌，取3个选项 */
+    private _makeOpt(label: string, cost: number, apply: () => void): UpgradeOption {
+        return { label, cost, apply };
+    }
+
+    /** Fisher-Yates 洗牌，取3个选项；保证至少一个可购买 */
     private rollUpgradeOptions(): UpgradeOption[] {
+        const lt = this.leftTower!;
+        const rt = this.rightTower;
         const pool: UpgradeOption[] = [
-            { tower: 0, label: '左塔伤害+10' },
-            { tower: 0, label: '左塔攻速+0.1' },
-            { tower: 0, label: '左塔伤害+8' },
+            this._makeOpt('左塔伤害+20', 150, () => { lt.damage += 20; }),
+            this._makeOpt('左塔攻速+0.1', 120, () => { lt.attackInterval = Math.max(0.05, lt.attackInterval - 0.1); }),
+            this._makeOpt('左塔伤害+8', 70, () => { lt.damage += 8; }),
+            this._makeOpt('左塔暴击+5%', 140, () => { lt.critChance = Math.min(1, lt.critChance + 0.05); }),
+            this._makeOpt('左塔穿透+1', 160, () => { lt.penetrateLevel++; }),
         ];
         if (!this.rightTowerInstalled) {
-            pool.push({ tower: 1, label: '安装右塔' });
-        } else {
+            pool.push(this._makeOpt('安装右塔', 80, () => {
+                if (rt && rt.node) {
+                    rt.node.active = true;
+                    this.rightTowerInstalled = true;
+                    console.log('[右塔] 已部署');
+                }
+            }));
+        } else if (rt) {
             pool.push(
-                { tower: 1, label: '右塔伤害+5' },
-                { tower: 1, label: '右塔攻速+0.15' },
-                { tower: 1, label: '右塔攻速+0.08' },
+                this._makeOpt('右塔伤害+10', 90, () => { rt.damage += 10; }),
+                this._makeOpt('右塔攻速+0.15', 110, () => { rt.attackInterval = Math.max(0.05, rt.attackInterval - 0.15); }),
+                this._makeOpt('右塔攻速+0.08', 60, () => { rt.attackInterval = Math.max(0.05, rt.attackInterval - 0.08); }),
+                this._makeOpt('右塔双发+5%', 180, () => { rt.doubleShotChance = Math.min(1, rt.doubleShotChance + 0.05); }),
+                this._makeOpt('右塔散射', 220, () => { rt.scatterEnabled = true; }),
             );
         }
         for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [pool[i], pool[j]] = [pool[j], pool[i]];
         }
-        return pool.slice(0, 3);
+        const picked = pool.slice(0, 3);
+
+        // 保证至少一个可购买：全部买不起时，用最便宜的替换第一个
+        if (picked.every(o => this.gold < o.cost)) {
+            const sorted = [...pool].sort((a, b) => a.cost - b.cost);
+            const cheapest = sorted[0];
+            if (this.gold >= cheapest.cost) {
+                picked[0] = cheapest;
+            }
+        }
+        return picked;
     }
 
-    /** 应用升级选项到对应塔 */
+    /** 应用升级选项 */
     private applyUpgrade(option: UpgradeOption) {
-        this.gold -= this.UPGRADE_COST;
-
-        if (option.label === '安装右塔') {
-            if (this.rightTower && this.rightTower.node) {
-                this.rightTower.node.active = true;
-                this.rightTowerInstalled = true;
-                console.log('[右塔] 已部署');
-            }
-            this.updateUI();
-            return;
-        }
-
-        const tw = option.tower === 0 ? this.leftTower : this.rightTower;
-        if (!tw) { this.updateUI(); return; }
-
-        if (option.label.includes('伤害+10')) {
-            tw.damage += 10;
-        } else if (option.label.includes('伤害+8')) {
-            tw.damage += 8;
-        } else if (option.label.includes('伤害+5')) {
-            tw.damage += 5;
-        } else if (option.label.includes('攻速+0.15')) {
-            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.15);
-        } else if (option.label.includes('攻速+0.1')) {
-            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.1);
-        } else if (option.label.includes('攻速+0.08')) {
-            tw.attackInterval = Math.max(0.05, tw.attackInterval - 0.08);
-        }
+        this.gold -= option.cost;
+        option.apply();
         this.updateUI();
     }
 
@@ -577,15 +626,14 @@ export class GameBootstrap extends Component {
 
     /** 绘制升级面板 */
     private showUpgradePanel(options: UpgradeOption[]) {
-        const btnY = [-40, -120, -200];
+        const btnY = [60, -20, -100];
         const btnW = 400, btnH = 70;
-        const canAfford = this.gold >= this.UPGRADE_COST;
 
         const panel = new Node('upgradePanel');
         this.node.addChild(panel);
         this.upgradePanel = panel;
 
-        // 全屏遮挡层（拦截所有触摸，不让穿透到游戏）
+        // 全屏遮挡层
         const mask = new Node('mask');
         const maskUIT = mask.addComponent(UITransform);
         maskUIT.setContentSize(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -595,15 +643,15 @@ export class GameBootstrap extends Component {
         mg.fill();
         panel.addChild(mask);
 
-        // 面板背景
+        // 面板背景（加高以容纳跳过按钮）
         const bg = new Node('panelBg');
         const bgUIT = bg.addComponent(UITransform);
-        bgUIT.setContentSize(500, 400);
+        bgUIT.setContentSize(500, 450);
         const bgg = bg.addComponent(Graphics);
         bgg.fillColor = new Color(30, 35, 45, 240);
         bgg.strokeColor = new Color(255, 215, 0, 200);
         bgg.lineWidth = 3;
-        bgg.roundRect(-250, -200, 500, 400, 16);
+        bgg.roundRect(-250, -225, 500, 450, 16);
         bgg.fill();
         bgg.stroke();
         panel.addChild(bg);
@@ -613,16 +661,16 @@ export class GameBootstrap extends Component {
         tl.string = `Lv.${this.level} 选择强化`;
         tl.fontSize = 30;
         tl.color = new Color(255, 215, 0);
-        title.setPosition(0, 120, 0);
+        title.setPosition(0, 170, 0);
         panel.addChild(title);
 
         // 金币提示
         const goldInfo = new Node('goldInfo');
         const gl = goldInfo.addComponent(Label);
-        gl.string = canAfford ? `花费 ${this.UPGRADE_COST} 金币 (持有 ${this.gold})` : `金币不足! (需要 ${this.UPGRADE_COST}, 持有 ${this.gold})`;
+        gl.string = `持有 ${this.gold} 金币`;
         gl.fontSize = 18;
-        gl.color = canAfford ? new Color(255, 215, 0) : new Color(255, 80, 80);
-        goldInfo.setPosition(0, 75, 0);
+        gl.color = new Color(255, 215, 0);
+        goldInfo.setPosition(0, 130, 0);
         panel.addChild(goldInfo);
 
         const closeUpgradePanel = () => {
@@ -633,24 +681,28 @@ export class GameBootstrap extends Component {
             this.upgradePanel = null;
         };
 
-        // 金币不足时，点遮罩关闭
-        if (!canAfford) {
-            mask.on(Node.EventType.TOUCH_END, () => closeUpgradePanel(), this);
-            for (let i = 0; i < 3; i++) {
-                panel.addChild(this.createUpgradeButton(options[i].label, btnY[i], true));
-            }
-            return;
-        }
-
+        // 三个升级按钮
         for (let i = 0; i < 3; i++) {
-            const btn = this.createUpgradeButton(options[i].label, btnY[i], false);
-            btn.on(Node.EventType.TOUCH_END, () => {
-                console.log(`[升级面板] 选中: ${options[i].label}`);
-                this.applyUpgrade(options[i]);
-                closeUpgradePanel();
-            }, this);
+            const opt = options[i];
+            const canAfford = this.gold >= opt.cost;
+            const btn = this.createUpgradeButton(`${opt.label}  (${opt.cost}金)`, btnY[i], !canAfford);
+            if (canAfford) {
+                btn.on(Node.EventType.TOUCH_END, () => {
+                    console.log(`[升级面板] 选中: ${opt.label}`);
+                    this.applyUpgrade(opt);
+                    closeUpgradePanel();
+                }, this);
+            }
             panel.addChild(btn);
         }
+
+        // 跳过按钮
+        const skipBtn = this.createUpgradeButton('跳过（免费）', -180, false);
+        skipBtn.on(Node.EventType.TOUCH_END, () => {
+            console.log('[升级面板] 跳过');
+            closeUpgradePanel();
+        }, this);
+        panel.addChild(skipBtn);
     }
 
     /** 创建单个升级按钮（带 UITransform 支持触摸） */

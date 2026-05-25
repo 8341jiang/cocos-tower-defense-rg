@@ -4,40 +4,27 @@ import { GameBootstrap } from './GameBootstrap';
 import { HALF_WIDTH, HALF_HEIGHT } from './ScreenConstants';
 const { ccclass } = _decorator;
 
-/**
- * Tower — 炮塔组件
- * 自动寻找矩形区域内最近敌人并射击
- * 由 GameBootstrap 自动创建，不需要手动配置
- */
 @ccclass('Tower')
 export class Tower extends Component {
 
-    /** 攻击矩形（世界坐标） */
     attackRect = { minX: -HALF_WIDTH, maxX: HALF_WIDTH, minY: -HALF_HEIGHT, maxY: HALF_HEIGHT };
-
-    /** 基础伤害 */
     damage: number = 20;
-
-    /** 攻击间隔（秒） */
     attackInterval: number = 1.0;
-
-    /** 敌人列表引用（由 GameBootstrap 注入） */
     enemies: Enemy[] = [];
-
-    /** 创建子弹的回调（由 GameBootstrap 注入） */
-    createBullet: ((fromX: number, fromY: number, target: Enemy, dmg: number) => void) | null = null;
-
-    /** 全局伤害加成引用（由 GameBootstrap 注入） */
+    createBullet: ((fromX: number, fromY: number, target: Enemy | null, dmg: number,
+        penetrate?: number, isCrit?: boolean, dirX?: number, dirY?: number) => void) | null = null;
     getDamageBonus: (() => number) | null = null;
-
-    /** 全局攻速加成引用（由 GameBootstrap 注入） */
     getSpeedBonus: (() => number) | null = null;
+
+    critChance: number = 0;
+    doubleShotChance: number = 0;
+    penetrateLevel: number = 0;
+    scatterEnabled: boolean = false;
 
     private _timer: number = 0;
 
     update(dt: number) {
         if (GameBootstrap.gamePaused) return;
-        // 攻速加成
         const speedBonus = this.getSpeedBonus ? this.getSpeedBonus() : 0;
         const interval = Math.max(0.1, this.attackInterval - speedBonus);
 
@@ -45,18 +32,55 @@ export class Tower extends Component {
         if (this._timer < interval) return;
         this._timer = 0;
 
-        // 找矩形内最近敌人
         const target = this.findNearest();
         if (!target) return;
 
-        // 伤害加成
         const dmgBonus = this.getDamageBonus ? this.getDamageBonus() : 0;
-        const totalDmg = this.damage + dmgBonus;
+        let totalDmg = this.damage + dmgBonus;
+        let isCrit = false;
+        if (this.critChance > 0 && Math.random() < this.critChance) {
+            totalDmg *= 2;
+            isCrit = true;
+        }
 
-        // 发射子弹
         const p = this.node.position;
+
+        if (this.scatterEnabled) {
+            const tx = target.node.position.x;
+            const ty = target.node.position.y;
+            const dx = tx - p.x;
+            const dy = ty - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const ndx = dist > 0 ? dx / dist : 0;
+            const ndy = dist > 0 ? dy / dist : 1;
+            this._fireScatter(p.x, p.y, ndx, ndy, totalDmg, isCrit, target);
+        } else {
+            this._fireNormal(p.x, p.y, target, totalDmg, isCrit, 0);
+            // 双发
+            if (this.doubleShotChance > 0 && Math.random() < this.doubleShotChance) {
+                this._fireNormal(p.x, p.y, target, totalDmg, isCrit, 8);
+            }
+        }
+    }
+
+    private _fireNormal(x: number, y: number, target: Enemy, dmg: number, isCrit: boolean, offsetX: number) {
         if (this.createBullet) {
-            this.createBullet(p.x, p.y, target, totalDmg);
+            this.createBullet(x + offsetX, y, target, dmg, this.penetrateLevel, isCrit);
+        }
+    }
+
+    private _fireScatter(x: number, y: number, ndx: number, ndy: number, dmg: number, isCrit: boolean, target: Enemy) {
+        if (!this.createBullet) return;
+        const angles = [0, 15, -15];
+        for (const angle of angles) {
+            const rad = angle * Math.PI / 180;
+            const rdx = ndx * Math.cos(rad) - ndy * Math.sin(rad);
+            const rdy = ndx * Math.sin(rad) + ndy * Math.cos(rad);
+            this.createBullet(x, y, null as any, dmg, this.penetrateLevel, isCrit, rdx, rdy);
+        }
+        // 双发叠加：额外 +1 发追踪弹
+        if (this.doubleShotChance > 0 && Math.random() < this.doubleShotChance) {
+            this.createBullet(x, y, target, dmg, this.penetrateLevel, isCrit);
         }
     }
 
